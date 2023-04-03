@@ -5,6 +5,148 @@
     <title>GSV image viewer</title>
     <link rel="stylesheet" href="style.css">
     <script src="index.js"></script>
+  <style>
+    #infoPanel{
+    border: 5px solid white; 
+    }
+    .selectorBox{
+      box-sizing: border-box;
+      border: 2px solid gray;
+      display: flex;
+      justify-content: center;
+      user-select: none;
+    }
+    #statusBox{
+      margin-top: 5px;
+      display: flex;
+      justify-content: center;
+    }
+    #statusBox > progress {
+    width: 50%;
+    }
+    .selectorBox:empty {
+    display: none;}
+    .selectorBox > span {
+      padding:10px;
+    }
+    .selected{
+      border: 2px solid white;
+      background-color: gray;
+
+    }
+    input:disabled{
+    background-color: gray;
+    }
+    .gsvFlex{
+    display: flex;
+    }
+    .gsvFlexLeft{
+    flex:5;
+    }
+    .gsvFlexRight{
+      flex:0.75;
+      margin-block: 8px;
+      margin-left: 8px;
+      padding-inline: 5px;
+      
+    }
+    #infoOutput{
+      border: 2px solid gray;
+    }
+    .gsvFlexRight:empty {
+      display: none;
+    }
+    .nearbyLocation {
+      border: 2px solid gray;
+      padding: 4px;
+      margin:8px;
+  }
+  #yearSelector {
+    border: 2px solid gray;
+    background: white;
+   display: flex; 
+  flex-direction: column;
+  columns: 1;
+  flex-wrap: wrap;
+  width: 200px;
+  user-select: none;
+  }
+  #currentYear, .yearButton {
+    padding: 10px;
+    text-align: center;
+  }
+  #currentYear {
+  background: gray;
+}
+.yearButton{
+  box-sizing: border-box;
+  cursor: pointer;
+  color: black;
+  border:2px solid transparent;
+  background: white;
+}
+.yearButton:hover {
+border:2px solid black;
+}
+  #nearbyLocations {
+  display:flex;
+  flex-wrap: wrap;
+}
+#compass{
+display: block;
+box-sizing: border-box;
+width: 100%;
+height: f;
+height: 300px;
+width: 300px;
+margin: 0px;
+padding: 0px;
+}
+#compass > .guide {
+position: relative;
+width: 1%;
+height: 1%;
+z-index: 9;
+background-color: black;
+}
+#compass>.guide#vert {
+width: 100%;
+top:50%;
+
+}
+#compass>.guide#horz {
+height: 100%;
+left: 50%;
+}
+#compass>#pointContainer {
+display: block;
+  width: 100%;
+height: 100%;
+margin: 0px;
+padding: 0px;
+top: 0%;
+transform: translate(0,-100%);
+}
+#pointContainer {
+  background-color: wheat;
+  border-radius: 500px;
+}
+#pointContainer>.point {
+position: absolute;
+width: 3%;
+height: 3%;
+background-color: red;
+}
+#pointContainer>.point:hover {
+  z-index: 10;
+background-color: orange;
+cursor: pointer;
+}
+#experimental {
+  margin-block: 8px;
+}
+  
+  </style>
   </head>
   <body>
     <main>
@@ -18,29 +160,37 @@
       <p>
       This tool allows you to view and download the full panoramic imagery from google's street view and google's photo spheres. To view an image, copy the link of the google street view page, paste it into the `input URL` field, and press `Load Image`. The resolution of the image downloaded can be adjusted with the `Resolution Level` field.
       </p>
-      <canvas id="canvas"></canvas>
-      <canvas id="canvas2"></canvas>
+      <canvas id="upperCanvas"></canvas>
+      <canvas id="lowerCanvas"></canvas>
       
-      <hr>
-      
-      <div id="infoPanel">
-        <b>Status: </b><span id="infoStatus">N/A</span> |
-        <b>Image Type: </b><span id="infoType">N/A</span> |
-        <b>Image ID: </b><span id="infoID">N/A</span> |
-        <b>Zoom Levels: </b><span id="infoZooms">N/A</span> |
-        <b>Copyright: </b><span id="infoCopyright">N/A</span>
+      <input type="text" placeholder="Input valid link to google streetview or google photoshpere page" name="" id="downloadURL" value="">
+      <div id="qualitySelector" class="selectorBox"></div>
+      <div id="statusBox" style="visibility: hidden;">
+        <progress id="downloadProgress" max="100" value="0"></progress></div>
+      <div class="gsvFlex">
+      <div class="gsvFlexLeft">
+      <input type="button" value="Load Image" id="loadButton">
+      <input type="button" value="Download Image" id="downloadButton">
+    </div>
+    <div class="gsvFlexRight" id="infoOutput"></div>
+    </div>
+    <details id="experimentalExpand">
+      <summary id="experimental">Experimental Features</summary>
+      <div class="gsvFlex">
+        <div class="gsvFlexLeft">
+          Compass
+          <div id="compass">
+        <div class="guide" id="vert"></div>
+        <div class="guide" id="horz"></div>
+        <div id="pointContainer"></div>
+      </div>
       </div>
       
-      <hr>
-      
-      <h2>Controls</h2>
-      <h3>Input URL</h3>
-      <input type="text" placeholder="Input valid link to google streetview or google photoshpere page" name="" id="downloadURL" value="">
-      <input type="button" value="Load Image" id="loadButton">
-      <h3>Resolution Level</h3>
-      <input type="number" name="zoom" id="zoom" value=6>
-      <input type="button" value="Download Image" id="downloadButton">
-      
+      <div id="gsvFlexRight"></div>
+      Year Selector
+    <div id="yearSelector"></div>
+  </details>
+
       Note, this tool is subject to your browsers limitations of HTML canvas. Higher resolution images are rendered to two canvases to bypass the single canvas area limit. The download button may not work with very large images. If the download button does not work, right click and `Save Image As...` on both the top and bottom canvases.
       
       <hr>

@@ -4,13 +4,14 @@
 // VARIABLES
 //
 
-var canvas, canvas2, ctx, ctx2, zoom;
-const maxCanvasHeight = 7000; //px
+var zoom = 0;
 var downloadCount = 0;
-
-//
-// UTILITY FUNCTIONS
-//
+var handler;
+var infoDisplay;
+var statusDisplay;
+var previousId;
+var loadButton;
+var downloadButton;
 
 function ID(id) {
   return document.getElementById(id);
@@ -28,226 +29,396 @@ function extractTextBetween(input, before, after) {
 
 window.addEventListener("load", () => {
   const urlBox = ID("downloadURL");
-  canvas = ID("canvas");
-  canvas2 = ID("canvas2");
-  ctx = canvas.getContext("2d");
-  ctx2 = canvas2.getContext("2d");
+  handler = new CanvasHandler(ID("lowerCanvas"), ID("upperCanvas"));
 
-  ID("loadButton").addEventListener("click", () => {
-    zoom = ID("zoom").value;
-    console.log("URL : ", urlBox.value);
-    parseURL(urlBox.value);
+  {
+    infoDisplay = ID("infoOutput");
+    infoDisplay.clear = function () {
+      this.innerHTML = "";
+    };
+    infoDisplay.setInfo = function (property, value) {
+      let el;
+      Array.from(this.childNodes).forEach((e) => {
+        if (e.id == property) {
+          el = e;
+        }
+      });
+      if (el === undefined) {
+        el = document.createElement("div");
+        el.id = property;
+        this.appendChild(el);
+      }
+      el.textContent = `${property}: ${value}`;
+      // }
+    };
+  }
+  {
+    statusDisplay = ID("statusBox");
+    statusDisplay.downloadProgress = ID("downloadProgress");
+    statusDisplay.setProgress = function (done, of) {
+      const percent = 100 * done / of;
+      this.downloadProgress.value = percent;
+      this.downloadProgress.textContent = `${percent}%`;
+    };
+    statusDisplay.show = function () {
+      this.style.visibility = "inherit";
+    };
+    statusDisplay.hide = function () {
+      this.style.visibility = "hidden";
+    };
+  }
+  loadButton = ID("loadButton");
+  downloadButton = ID("downloadButton");
+  downloadButton.disabled = true;
+
+
+  loadButton.addEventListener("click", () => {
+    let [func, id] = parseURL(urlBox.value);
+    new func(id).load();
   });
-  ID("downloadButton").addEventListener("click", () => {
-    downloadCanvas();
+
+  downloadButton.addEventListener("click", () => {
+    handler.download();
   });
+
+  urlBox.addEventListener("input", () => {
+    checkMetadata();
+  });
+  checkMetadata();
 });
 
-//
-//
-//
+function checkMetadata() {
+  const dlUrl = ID("downloadURL");
 
-function downloadCanvas() {
-  ID("infoStatus").textContent = "saving image..";
-  if (canvas2.height > 0) {
-    const link1 = document.createElement('a');
-    link1.download = `top${downloadCount}.png`;
-    link1.href = canvas.toDataURL();
-    link1.click();
-    const link2 = document.createElement('a');
-    link2.download = `bottom${downloadCount}.png`;
-    link2.href = canvas2.toDataURL();
-    link2.click();
-    downloadCount++;
-  } else {
-    const link = document.createElement('a');
-    link.download = `image${downloadCount}.png`;
-    link.href = canvas.toDataURL();
-    link.click();
-    downloadCount++;
+
+  const [cls, id] = parseURL(dlUrl.value);
+
+  if (cls === false) {
+    loadButton.disabled = true;
+    dlUrl.style.border = "2px solid red";
+    infoDisplay.clear();
+    return;
+  }
+  if (loadButton === true) {
+    return;
+  }
+  previousId = id;
+  if (cls !== false) {
+    const handle = new cls(id);
+    handle.getMetadata().then((metadata) => {
+      if (metadata === false) {
+        loadButton.disabled = true;
+        dlUrl.style.border = "2px solid red";
+        return;
+      } else {
+        updateQualityRange(metadata.zooms);
+      }
+    });
+
+    dlUrl.style.border = "2px solid green";
+    loadButton.removeAttribute("disabled");
   }
 }
 
-function resetInfoDisplay() {
-  const normal = "N/A";
-  ID("infoStatus").textContent = normal;
-  ID("infoType").textContent = normal;
-  ID("infoCopyright").textContent = normal;
-  ID("infoZooms").textContent = normal;
-  ID("infoID").textContent = normal;
+function updateQualityRange(zooms) {
+  const qualityContainer = ID("qualitySelector");
+  qualityContainer.innerHTML = "";
+  let qualityElements = [];
+  for (let i = 0; i < zooms.length; i++) {
+    const span = document.createElement("span");
+    const zoomLevel = zooms[i];
+    span.order = i;
+    span.textContent = `${i + 1}: ${zoomLevel[0]}x${zoomLevel[1]}`;
+    span.select = function () {
+      deselectAll();
+      this.classList.add("selected");
+      zoom = this.order;
+    };
+    span.deselect = function () {
+      this.classList.remove("selected");
+    };
+    span.addEventListener("click", (e) => {
+      e.target.select();
+    });
+    qualityElements.push(span);
+    qualityContainer.appendChild(span);
+  }
+  qualityElements[0].select();
+
+  function deselectAll() {
+    for (const e of qualityElements) {
+      e.deselect();
+    }
+  }
+
 }
 
+
+
 function parseURL(url) {
-  resetInfoDisplay();
   if (url.includes("panoid")) {
     const id = extractTextBetween(url, "panoid%3D", "%");
-    console.log("Extracted PanoID using method 1: ", id);
 
-    getPath(id);
+    return [GSVPath, id];
   } else if (url.includes("m4!1s") && url.includes("data=")) {
     const id = extractTextBetween(url, "m4!1s", "!2e");
     if (id.length > 22) {
-      console.log("Extracted Photosphere ID using method 2: ", id);
-      getSphere(id);
+      return [GSVSphere, id];
     } else {
-      console.log("Extracted PanoID using method 2: ", id);
-      getPath(id);
+      return [GSVPath, id];
     }
   } else if (url.includes("googleusercontent.com")) {
     const id = extractTextBetween(url, "googleusercontent.com%2Fp%2F", "%3");
-    console.log("Photosphere ID extracted: ", id);
-    getSphere(id);
+    return [GSVSphere, id];
   } else {
-    ID("infoStatus").textContent = "Error: Could not understand link.";
+    return [false];
   }
 }
 
-//
-// PATH OBTAINING LOGIC
-//
 
-function getPath(panoid) {
-  ID("infoStatus").textContent = "Getting data from server...";
-  ID("infoID").textContent = panoid;
-  ID("infoType").textContent = `Street View`;
-  var request = new XMLHttpRequest();
-  request.onload = function () {
-    ID("infoStatus").textContent = "Parsing data...";
-    // Metadata parsing witchcraft
-    const data = JSON.parse(this.responseText.substring(4))[1][0];
-
-    const tileSize = data[2][3][1][0];
-    const bestZoom = (data[2][3][0].length - 1);
-
-    if (bestZoom < zoom || zoom < 0) {
-      zoom = bestZoom;
-      document.getElementById("zoom").value = bestZoom;
-    }
-
-    const copyright = data[4][0][0][0][0];
-
-    ID("infoZooms").textContent = ` 0 to ${bestZoom}`;
-    ID("infoCopyright").textContent = copyright;
-
-    const widthPX = data[2][3][0][zoom][0][1];
-    const heightPX = data[2][3][0][zoom][0][0];
-    const width = Math.ceil(widthPX / tileSize);
-    const height = Math.ceil(heightPX / tileSize);
-
-    prepCanvas(widthPX, heightPX);
-
-    ID("infoStatus").textContent = "Downloading tiles";
-    const totalTiles = width * height;
-    var processedTiles = 0;
-    for (let x = 0; x < width; x++) {
-      for (let y = 0; y < height; y++) {
-        requestImage(`https://streetviewpixels-pa.googleapis.com/v1/tile?cb_client=maps_sv.tactile&panoid=${panoid}&x=${x}&y=${y}&zoom=${zoom}&nbt=1&fover=0`, (image) => {
-          paintImage(image, x, y, heightPX, widthPX, tileSize, height);
-          processedTiles++;
-          if (processedTiles === totalTiles) {
-            ID("infoStatus").textContent = "finished";
-          }
-        });
-      }
-    }
-  };
-  request.open("get", `https://www.google.com/maps/photometa/v1?authuser=0&pb=!1m4!1smaps_sv.tactile!11m2!2m1!1b1!2m2!1sen!2sus!3m3!1m2!1e2!2s${panoid}!4m57!1e1!1e2!1e3!1e4!1e5!1e6!1e8!1e12!2m1!1e1!4m1!1i48!5m1!1e1!5m1!1e2!6m1!1e1!6m1!1e2!9m36!1m3!1e2!2b1!3e2!1m3!1e2!2b0!3e3!1m3!1e3!2b1!3e2!1m3!1e3!2b0!3e3!1m3!1e8!2b0!3e3!1m3!1e1!2b0!3e3!1m3!1e4!2b0!3e3!1m3!1e10!2b1!3e2!1m3!1e10!2b0!3e3`, true);
-  request.send();
-
-}
-
-//
-// PHOTOSHPERE OBTAINING LOGIC
-//
-
-function getSphere(sphereID) {
-  ID("infoStatus").textContent = "Getting data from server...";
-  ID("infoID").textContent = sphereID;
-  ID("infoType").textContent = `Photo Sphere`;
-  var request = new XMLHttpRequest();
-  request.onload = function () {
-    ID("infoStatus").textContent = "Parsing data...";
-    // Metadata parsing witchcraft
-    const data = JSON.parse(this.responseText.substring(4))[1][0];
-    const tileSize = data[2][3][1][0];
-    const bestZoom = (data[2][3][0].length - 1);
-
-    if (bestZoom < zoom || zoom < 0) {
-      zoom = bestZoom;
-      document.getElementById("zoom").value = bestZoom;
-    }
-
-    const widthPX = data[2][3][0][zoom][0][1];
-    const heightPX = data[2][3][0][zoom][0][0];
-    const width = Math.ceil(widthPX / tileSize);
-    const height = Math.ceil(heightPX / tileSize);
-
-    prepCanvas(widthPX, heightPX);
-
-    const copyright = data[4][1][0][0];
-    ID("infoZooms").textContent = bestZoom;
-    ID("infoCopyright").textContent = copyright;
-
-    prepCanvas(widthPX, heightPX);
-
-    ID("infoStatus").textContent = "Downloading tiles";
-    const totalTiles = width * height;
-    var processedTiles = 0;
-    for (let x = 0; x < width; x++) {
-      for (let y = 0; y < height; y++) {
-        requestImage(`https://lh3.ggpht.com/p/${sphereID}=x${x}-y${y}-z${zoom}`, (image) => {
-          paintImage(image, x, y, heightPX, widthPX, tileSize, height);
-          processedTiles++;
-          if (processedTiles === totalTiles) {
-            ID("infoStatus").textContent = "finished";
-          }
-        });
-      }
-    }
-  };
-  request.open("get", `https://www.google.com/maps/photometa/v1?authuser=0&hl=en&gl=us&pb=!1m4!1smaps_sv.tactile!11m2!2m1!1b1!2m2!1sen!2sus!3m3!1m2!1e10!2s${sphereID}!4m57!1e1!1e2!1e3!1e4!1e5!1e6!1e8!1e12!2m1!1e1!4m1!1i48!5m1!1e1!5m1!1e2!6m1!1e1!6m1!1e2!9m36!1m3!1e2!2b1!3e2!1m3!1e2!2b0!3e3!1m3!1e3!2b1!3e2!1m3!1e3!2b0!3e3!1m3!1e8!2b0!3e3!1m3!1e1!2b0!3e3!1m3!1e4!2b0!3e3!1m3!1e10!2b1!3e2!1m3!1e10!2b0!3e3`, true);
-  request.send();
-
-}
-
-function requestImage(url, callback) {
-  var req = new XMLHttpRequest();
-  req.responseType = "arraybuffer";
-  req.onload = function () {
-    const blob = new Blob([this.response], { type: 'application/octet-binary' });
-    var url = window.URL.createObjectURL(blob);
-    const image = new Image();
-    image.src = url;
-    image.onload = () => {
-      callback(image);
-    };
-  };
-  req.open("get", url, true);
-  req.send();
-}
-
-function prepCanvas(widthPX, heightPX) {
-  canvas.width = widthPX;
-  canvas2.width = widthPX;
-
-  if (heightPX > maxCanvasHeight) {
-    canvas2.height = heightPX / 2;
-    canvas.height = heightPX / 2;
-  } else {
-    canvas2.height = 0;
-    canvas2.width = 0;
-    canvas.height = heightPX;
+class CanvasHandler {
+  maxCanvasHeight = 7000;//pixels
+  doubleCanvas = false;
+  constructor(upperCanvas, lowerCanvas) {
+    this.upper = upperCanvas;
+    this.lower = lowerCanvas;
+    this.upperContext = upperCanvas.getContext("2d");
+    this.lowerContext = lowerCanvas.getContext("2d");
   }
-}
 
-function paintImage(img, x, y, heightPX, widthPX, tileSize, height) {
-  if (heightPX > maxCanvasHeight) {
-    if ((y > ((height / 2) - 1)) && height !== 1) {
-      ctx2.drawImage(img, x * tileSize, y * tileSize - (heightPX / 2));
+  setSize(widthPX, heightPX, tileSize) {
+    this.upper.width = widthPX;
+    this.lower.width = widthPX;
+    this.tileSize = tileSize;
+
+    if (heightPX > this.maxCanvasHeight) {
+      this.lower.height = heightPX / 2;
+      this.upper.height = heightPX / 2;
+      this.doubleCanvas = true;
+      this.lower.style = "";
     } else {
-      ctx.drawImage(img, x * tileSize, y * tileSize);
+      this.doubleCanvas = false;
+      this.lower.style = "display:none;";
+      this.upper.height = heightPX;
     }
-  } else {
-    ctx.drawImage(img, x * tileSize, y * tileSize);
+    this.upperContext = this.upper.getContext("2d");
+    this.lowerContext = this.lower.getContext("2d");
+  }
+  paintImage(img, x, y, heightPX, widthPX, height) {
+    if (this.doubleCanvas) {
+      if ((y > ((height / 2) - 1)) && height !== 1) {
+        this.upperContext.drawImage(img, x * this.tileSize, y * this.tileSize - (heightPX / 2));
+      } else {
+        this.lowerContext.drawImage(img, x * this.tileSize, y * this.tileSize);
+      }
+    } else {
+      this.upperContext.drawImage(img, x * this.tileSize, y * this.tileSize);
+    }
+  }
+  download() {
+    if (this.doubleCanvas) {
+      const link2 = document.createElement('a');
+      link2.download = `bottom${downloadCount}.png`;
+      link2.href = this.lower.toDataURL();
+      link2.click();
+      downloadCount++;
+    }
+    const link = document.createElement('a');
+    link.download = `image${downloadCount}.png`;
+    link.href = this.upper.toDataURL();
+    link.click();
+    downloadCount++;
+  }
+
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function angleToCompasPercentage(pos1, pos2) {
+  const [lat1, lon1] = pos1;
+  const [lat2, lon2] = pos2;
+  const [latDif, lonDif] = [lat2 - lat1, lon2 - lon1];
+  const angle = Math.atan2(latDif, lonDif);
+  const x = (Math.cos(angle) * 48 + 48);
+  const y = (-Math.sin(angle) * 48 + 48);
+  return [x, y];
+}
+
+class PanoDownloader {
+
+  constructor(id) {
+    this.id = id;
+  }
+
+  async load() {
+    this.meta = await this.getMetadata();
+    infoDisplay.setInfo("Author", this.meta.copyright);
+    // infoDisplay.setInfo("Location", `${this.meta.lat}, ${this.meta.lon}`);
+    this.#plot();
+
+    if ("nearme" in this.meta === true && experimental) {
+      this.experimentalFeatures();
+      ID("experimentalExpand").style.display = "block";
+    } else {
+      ID("experimentalExpand").style.display = "none";
+    }
+  }
+
+  experimentalFeatures() {
+    const yearSelector = ID("yearSelector");
+    const container = ID("pointContainer");
+    yearSelector.innerHTML = "";
+    container.innerHTML = "";
+
+    {
+      let el = document.createElement("span");
+      el.textContent = MONTHS[this.meta.date[1]] + " " + this.meta.date[0];
+      el.id = "currentYear";
+      yearSelector.appendChild(el);
+    }
+
+    const locations = this.meta.nearme.map((a) => a[0]);
+    for (let i = 1; i < locations.length; i++) {
+      if (this.meta.nearme[i][2] === undefined) {
+        let [x, y] = angleToCompasPercentage([this.meta.lat, this.meta.lon], this.meta.nearme[i][1]);
+
+        let el = document.createElement("div");
+        el.classList.add("point");
+        el.style.left = `${x}%`;
+        el.style.top = `${y}%`;
+        el.addEventListener("click", (e) => {
+          new (Object.getPrototypeOf(this).constructor)(locations[i]).load();
+        });
+        container.appendChild(el);
+      } else {
+        let el = document.createElement("span");
+        el.classList.add("yearButton");
+        el.textContent = MONTHS[this.meta.nearme[i][2][1]] + " " + this.meta.nearme[i][2][0];
+        if (this.meta.date === this.meta.nearme[i][2]) {
+        }
+        el.addEventListener("click", (e) => {
+          new (Object.getPrototypeOf(this).constructor)(locations[i]).load();
+        });
+        yearSelector.appendChild(el);
+
+      }
+    }
+
+
+
+  }
+
+  async getMetadata() {
+    infoDisplay.clear();
+    infoDisplay.setInfo("Image ID", this.id);
+
+    return fetch(this.formatMetadataURL()).then((response) => response.text())
+      .then((responseText) => {
+        return this.extractMetadata(responseText);
+      }).catch((err) => { console.error(err); return false; });
+  }
+
+  async #plot() {
+    loadButton.disabled = true;
+    downloadButton.disabled = true;
+    statusDisplay.show();
+    statusDisplay.setProgress(0, 1);
+    handler.setSize(this.meta.widthPX, this.meta.heightPX, this.meta.tileSize);
+
+    const totalTiles = this.meta.width * this.meta.height;
+    var processedTiles = 0;
+
+    for (let x = 0; x < this.meta.width; x++) {
+      for (let y = 0; y < this.meta.height; y++) {
+        this.#downloadImage(this.formatImageUrl(x, y, zoom)).then((image) => {
+          handler.paintImage(image, x, y, this.meta.heightPX, this.meta.widthPX, this.meta.height);
+          processedTiles++;
+          statusDisplay.setProgress(processedTiles, totalTiles);
+          if (processedTiles === totalTiles) {
+            loadButton.disabled = false;
+            downloadButton.disabled = false;
+            statusDisplay.hide();
+          }
+        });
+
+      }
+    }
+
+  }
+
+  async #downloadImage(url) {
+    return fetch(url).then(response => response.blob()).then(imageBlob => {
+      return new Promise(resolve => {
+        const imageObjectURL = URL.createObjectURL(imageBlob);
+        const image = new Image();
+        image.src = imageObjectURL;
+        image.onload = () => {
+          resolve(image);
+        };
+      });
+    });
+  }
+}
+
+class GSVPath extends PanoDownloader {
+  experimental = true;
+  formatMetadataURL() {
+    return (
+      "https://www.google.com/maps/photometa/v1?authuser=0&pb=!1m4!1smaps_sv.tactile" +
+      "!11m2!2m1!1b1!2m2!1sen!2sus!3m3!1m2!1e2!2s" +
+      this.id +
+      "!4m57!1e1!1e2!1e3!1e4!1e5!1e6!1e8!1e12!2m1!1e1!4m1!1i48!5m1!1e1!5m1!1e2!6m1!1e1!6m1!1e2!9m36!1m3!1e2!2b1!3e2!1m3!1e2!2b0!3e3!1m3!1e3!2b1!3e2!1m3!1e3!2b0!3e3!1m3!1e8!2b0!3e3!1m3!1e1!2b0!3e3!1m3!1e4!2b0!3e3!1m3!1e10!2b1!3e2!1m3!1e10!2b0!3e3"
+    );
+  }
+  formatImageUrl(x, y, zoom) {
+    return `https://streetviewpixels-pa.googleapis.com/v1/tile?cb_client=maps_sv.tactile&panoid=${this.id}&x=${x}&y=${y}&zoom=${zoom}&nbt=1&fover=0`;
+  }
+  extractMetadata(responseText) {
+    let meta = {};
+    const data = JSON.parse(responseText.substring(4))[1][0];
+    meta.nearme = data[5]?.[0]?.[3]?.[0].map((a) => [a?.[0]?.[1], [a?.[2]?.[0]?.[2], a?.[2]?.[0]?.[3]], undefined]);
+    data?.[5]?.[0]?.[8]?.forEach((a) => meta.nearme[a[0]][2] = a?.[1]);
+
+    meta.tileSize = data[2][3]?.[1]?.[0];
+    meta.zooms = data[2][3][0].map((a) => a[0]).map((b) => [b[1], b[0]]);
+    meta.widthPX = meta.zooms[zoom][0];
+    meta.lat = data[5][0][1][0][2];
+    meta.lon = data[5][0][1][0][3];
+    meta.heightPX = meta.zooms[zoom][1];
+    meta.width = Math.ceil(meta.widthPX / meta.tileSize);
+    meta.height = Math.ceil(meta.heightPX / meta.tileSize);
+    meta.date = data[6][7];
+    // meta.address = `${data[3]?.[2]?.[0]?.[0]} ${data[3]?.[2]?.[1]?.[0]}`;
+    meta.copyright = data[4][0][0][0][0];
+    return meta;
+  }
+}
+
+class GSVSphere extends PanoDownloader {
+  formatMetadataURL() {
+    return (
+      "https://www.google.com/maps/photometa/v1?authuser=0&hl=en&gl=us&pb=!1m4!1smaps_sv.tactile" +
+      "!11m2!2m1!1b1!2m2!1sen!2sus!3m3!1m2!1e10!2s" +
+      this.id +
+      "!4m57!1e1!1e2!1e3!1e4!1e5!1e6!1e8!1e12!2m1!1e1!4m1!1i48!5m1!1e1!5m1!1e2!6m1!1e1!6m1!1e2!9m36!1m3!1e2!2b1!3e2!1m3!1e2!2b0!3e3!1m3!1e3!2b1!3e2!1m3!1e3!2b0!3e3!1m3!1e8!2b0!3e3!1m3!1e1!2b0!3e3!1m3!1e4!2b0!3e3!1m3!1e10!2b1!3e2!1m3!1e10!2b0!3e3"
+    );
+  }
+  extractMetadata(responseText) {
+    let meta = {};
+    const data = JSON.parse(responseText.substring(4))[1][0];
+    meta.tileSize = data[2][3][1][0];
+    meta.bestZoom = (data[2][3][0].length - 1);
+    meta.zooms = data[2][3][0].map((a) => a[0]).map((b) => [b[1], b[0]]);
+
+    meta.widthPX = meta.zooms[zoom][0];
+    meta.heightPX = meta.zooms[zoom][1];
+    meta.width = Math.ceil(meta.widthPX / meta.tileSize);
+    meta.height = Math.ceil(meta.heightPX / meta.tileSize);
+
+    meta.copyright = data[4][1][0][0];
+    return meta;
+  }
+  formatImageUrl(x, y, zoom) {
+    return `https://lh3.ggpht.com/p/${this.id}=x${x}-y${y}-z${zoom}`;
   }
 }
