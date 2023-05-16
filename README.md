@@ -1,5 +1,6 @@
 # GSVviewer
 
-# [info](https://alexanderbass.com/programming/gsvviewer/)
+A Javascript tool to download and stitch together Google Streetview Panoramic 360° imagery.
 
-Contributions and bug reports are welcome. This git page does not allow any user signups so please email me any contributions/issues. My email adress can be found at [my website](https://alexanderbass.com/info/)
+A live demo is available at [https://alexanderbass.com/show/2022/street-view-viewer/](https://alexanderbass.com/show/2022/street-view-viewer/)
+
